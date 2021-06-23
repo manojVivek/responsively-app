@@ -7,16 +7,13 @@ import {withStyles, withTheme} from '@material-ui/core/styles';
 import debounce from 'lodash/debounce';
 import pubsub from 'pubsub.js';
 import BugIcon from '../icons/Bug';
-import FullScreenshotIcon from '../icons/FullScreenshot';
 import ScreenshotIcon from '../icons/Screenshot';
-import DeviceRotateIcon from '../icons/DeviceRotate';
 import {
   SCROLL_DOWN,
   SCROLL_UP,
   NAVIGATION_BACK,
   NAVIGATION_FORWARD,
   NAVIGATION_RELOAD,
-  SCREENSHOT_ALL_DEVICES,
   FLIP_ORIENTATION_ALL_DEVICES,
   TOGGLE_DEVICE_MUTED_STATE,
   RELOAD_CSS,
@@ -30,6 +27,7 @@ import {
   APPLY_CSS,
   TOGGLE_DEVICE_DESIGN_MODE_STATE,
   TOGGLE_EVENT_MIRRORING_ALL_DEVICES,
+  SCREENSHOT_IN_PROGRESS,
   PAGE_NAVIGATOR_CHANGED,
 } from '../../constants/pubsubEvents';
 import {CAPABILITIES} from '../../constants/devices';
@@ -52,8 +50,6 @@ import {captureOnSentry} from '../../utils/logUtils';
 import {getBrowserSyncEmbedScriptURL} from '../../services/browserSync';
 import Spinner from '../Spinner';
 import {isSslValidationFailed} from '../../utils/generalUtils';
-
-const {BrowserWindow} = remote;
 
 const MESSAGE_TYPES = {
   scroll: 'scroll',
@@ -127,9 +123,11 @@ class WebView extends Component {
     this.subscriptions.push(
       pubsub.subscribe(DELETE_STORAGE, this.processDeleteStorageEvent)
     );
+
     this.subscriptions.push(
-      pubsub.subscribe(SCREENSHOT_ALL_DEVICES, this.processScreenshotEvent)
+      pubsub.subscribe(SCREENSHOT_IN_PROGRESS, this.processScreenShotInProgress)
     );
+
     this.subscriptions.push(
       pubsub.subscribe(
         TOGGLE_EVENT_MIRRORING_ALL_DEVICES,
@@ -268,7 +266,7 @@ class WebView extends Component {
       this.props.onAddressChange(url);
     };
 
-    const navigationHandler = event => {
+    const navigationHandler = () => {
       if (this.props.transmitNavigatorStatus) {
         this.props.updateNavigatorStatus({
           backEnabled: this.webviewRef.current.canGoBack(),
@@ -358,7 +356,7 @@ class WebView extends Component {
       .executeJavaScript(
         `{
           var elements = document.querySelectorAll('${selector}');
-          var len = elements.length; 
+          var len = elements.length;
           if (len !== 0) {
             var idx = ((${index} % len) + len) % len;
             var el = elements[idx];
@@ -454,7 +452,16 @@ class WebView extends Component {
     this.webviewRef.current.send('scrollUpMessage');
   };
 
-  processToggleEventMirroring = async ({status}) => {
+  processToggleEventMirroring = async ({status, idsToConsider}) => {
+    // if ids to consider is empty, assumes all ids need to be toggled
+    if (idsToConsider && idsToConsider.length) {
+      const currentId = this.getWebContentsId();
+      const present = idsToConsider.includes(currentId);
+      if (!present) {
+        return;
+      }
+    }
+
     if (status) {
       this.setState(
         () => ({
@@ -476,6 +483,10 @@ class WebView extends Component {
         }
       );
     }
+  };
+
+  processScreenShotInProgress = async ({isInProgress}) => {
+    this.setState({screenshotInProgress: isInProgress});
   };
 
   processScreenshotEvent = async ({
@@ -949,6 +960,7 @@ class WebView extends Component {
             src={address}
             useragent={useragent}
             style={deviceStyles}
+            id={id}
           />
         </Resizable>
       );
@@ -963,6 +975,7 @@ class WebView extends Component {
           src={address}
           useragent={useragent}
           style={deviceStyles}
+          id={id}
           webpreferences={
             this.props.browser.userPreferences.disableSpellCheck
               ? 'spellcheck=no'

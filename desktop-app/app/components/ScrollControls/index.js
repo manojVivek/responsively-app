@@ -1,11 +1,9 @@
 // @flow
-import React, {Component, useEffect, useRef, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import cx from 'classnames';
 import Grid from '@material-ui/core/Grid';
 import Tooltip from '@material-ui/core/Tooltip';
-import {makeStyles, useTheme} from '@material-ui/core/styles';
-import ScrollDownIcon from '../icons/ScrollDown';
-import ScrollUpIcon from '../icons/ScrollUp';
+import {makeStyles} from '@material-ui/core/styles';
 import Unplug from '../icons/Unplug';
 import ScreenshotIcon from '../icons/FullScreenshot';
 import DeviceRotateIcon from '../icons/DeviceRotate';
@@ -17,8 +15,12 @@ import useCommonStyles from '../useCommonStyles';
 import ZoomContainer from '../../containers/ZoomContainer';
 import PrefersColorSchemeSwitch from '../PrefersColorSchemeSwitch';
 import ToggleTouch from '../ToggleTouch';
-import Muted from '../icons/Muted';
 import CSSEditor from '../icons/CSSEditor';
+import pubsub from 'pubsub.js';
+import {SCREENSHOT_ALL_DEVICES} from '../../constants/pubsubEvents';
+// import Capture from '../ScreenshotManager/Capture';
+import Capture from '../ScreenshotManager/Capture-new';
+import ScreenshotManager from '../ScreenshotManager';
 import styles from '../WebView/style.module.css';
 import PageNavigatorIcon from '../icons/PageNavigator';
 
@@ -41,8 +43,6 @@ const VerticalRuler = () => {
 const ScrollControls = ({
   toggleEventMirroringAllDevices,
   browser,
-  triggerScrollDown,
-  triggerScrollUp,
   screenshotAllDevices,
   flipOrientationAllDevices,
   toggleInspector,
@@ -52,9 +52,9 @@ const ScrollControls = ({
   onChangePageNavigatorActive,
 }) => {
   const [eventMirroring, setEventMirroring] = useState(true);
+  const [anchorEl, setAnchorEl] = useState(null);
   const initialRender = useRef(true);
   const classes = useStyles();
-  const theme = useTheme();
   const commonClasses = useCommonStyles();
   const iconProps = {
     color: 'currentColor',
@@ -63,15 +63,33 @@ const ScrollControls = ({
   };
 
   useEffect(() => {
+    pubsub.subscribe(SCREENSHOT_ALL_DEVICES, Capture);
     if (initialRender.current) {
       initialRender.current = false;
     } else {
       toggleEventMirroringAllDevices(eventMirroring);
     }
+
+    return () => {
+      pubsub.unsubscribe(Capture);
+    };
   }, [eventMirroring]);
 
   const handleEventMirroring = () => {
     setEventMirroring(!eventMirroring);
+  };
+
+  const handleScreenShotDialog = event => {
+    setAnchorEl(event.currentTarget);
+  };
+
+  const closeDialog = () => {
+    setAnchorEl(null);
+  };
+
+  const handleScreenshot = data => {
+    screenshotAllDevices(data);
+    setAnchorEl(null);
   };
 
   return (
@@ -174,7 +192,7 @@ const ScrollControls = ({
         </Grid>
         <Grid item className={commonClasses.icon}>
           <Tooltip title="Take Screenshot">
-            <div onClick={screenshotAllDevices}>
+            <div onClick={handleScreenShotDialog}>
               <ScreenshotIcon {...iconProps} />
             </div>
           </Tooltip>
@@ -194,6 +212,15 @@ const ScrollControls = ({
 
         <ZoomContainer iconProps={iconProps} />
       </Grid>
+
+      {Boolean(anchorEl) && (
+        <ScreenshotManager
+          browser={browser}
+          isOpen={Boolean(anchorEl)}
+          handleClose={closeDialog}
+          handleOk={data => handleScreenshot(data)}
+        />
+      )}
     </div>
   );
 };
